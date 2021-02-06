@@ -16,7 +16,8 @@ name = "zero2prod"
 [dependencies]
 actix-web = "3.3.2"
 actix-rt = "1.1.1"
+anyhow = "1.0.38"
 
 [dev-dependencies]
-tokio = { version = "0.2.2", features = ["full"] }
-reqwest = "0.10.10"
+tokio = { version = "0.2.22", features = ["full"] }
+reqwest = "0.10.0"
