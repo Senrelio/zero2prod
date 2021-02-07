@@ -4,6 +4,12 @@ pub struct Settings {
     pub application_port: u16,
 }
 
+pub fn get_configuration() -> Result<Settings, config::ConfigError> {
+    let mut settings = config::Config::default();
+    settings.merge(config::File::with_name("configuration"))?;
+    settings.try_into()
+}
+
 #[derive(serde::Deserialize)]
 pub struct DatabaseSettings {
     pub username: String,
@@ -20,19 +26,10 @@ impl DatabaseSettings {
             self.username, self.password, self.host, self.port, self.database_name
         )
     }
-
-    pub fn connection_string_without_db(&self) -> String {
+    pub fn connection_string_no_db_name(&self) -> String {
         format!(
             "postgres://{}:{}@{}:{}",
             self.username, self.password, self.host, self.port
         )
     }
-}
-
-pub fn get_configuration() -> Result<Settings, config::ConfigError> {
-    let mut settings = config::Config::default();
-
-    settings.merge(config::File::with_name("configuration"))?;
-
-    settings.try_into()
 }

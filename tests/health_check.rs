@@ -1,104 +1,83 @@
-use sqlx::{Connection, Executor, PgConnection, PgPool};
 use std::net::TcpListener;
+
+use sqlx::{Connection, Executor, PgConnection, PgPool};
 use uuid::Uuid;
 use zero2prod::configuration::{get_configuration, DatabaseSettings};
-use zero2prod::startup::run;
 
-pub struct TestApp {
+struct TestApp {
     pub address: String,
     pub db_pool: PgPool,
 }
 
 async fn spawn_app() -> TestApp {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("Failed to bind random port");
-    // We retrieve the port assigned to us by the OS
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let port = listener.local_addr().unwrap().port();
     let address = format!("http://127.0.0.1:{}", port);
-
-    let mut configuration = get_configuration().expect("Failed to read configuration.");
-    configuration.database.database_name = Uuid::new_v4().to_string();
-    let connection_pool = configure_database(&configuration.database).await;
-
-    let server = run(listener, connection_pool.clone()).expect("Failed to bind address");
+    let mut configuration = get_configuration().expect("failed to read configuration.");
+    let db_name = Uuid::new_v4().to_string();
+    configuration.database.database_name = db_name;
+    let db_pool = configure_database(&configuration.database).await;
+    let server = zero2prod::run(listener, db_pool.clone()).expect("Failed to bind address");
     let _ = tokio::spawn(server);
-    TestApp {
-        address,
-        db_pool: connection_pool,
-    }
+    TestApp { address, db_pool }
 }
 
-pub async fn configure_database(config: &DatabaseSettings) -> PgPool {
-    // Create database
-    let mut connection = PgConnection::connect(&config.connection_string_without_db())
-        .await
-        .expect("Failed to connect to Postgres");
+async fn configure_database(config: &DatabaseSettings) -> PgPool {
+    let mut connection: PgConnection =
+        PgConnection::connect(&config.connection_string_no_db_name())
+            .await
+            .expect("failed to connect to Postgres");
     connection
-        .execute(&*format!(r#"CREATE DATABASE "{}";"#, config.database_name))
+        .execute(format!(r#"create database "{}";"#, config.database_name).as_str())
         .await
-        .expect("Failed to create database.");
-
-    // Migrate database
-    let connection_pool = PgPool::connect(&config.connection_string())
+        .expect("failed to create random databases.");
+    let pool = PgPool::connect(&config.connection_string())
         .await
-        .expect("Failed to connect to Postgres.");
+        .expect("failed to connect to random Postgres.");
     sqlx::migrate!("./migrations")
-        .run(&connection_pool)
+        .run(&pool)
         .await
-        .expect("Failed to migrate the database");
-
-    connection_pool
+        .expect("failed to migrate random database");
+    pool
 }
 
 #[actix_rt::test]
-async fn health_check_works() {
-    // Arrange
+async fn health_check_succeeds() {
     let app = spawn_app().await;
     let client = reqwest::Client::new();
-
-    // Act
     let response = client
-        // Use the returned application address
         .get(&format!("{}/health_check", &app.address))
         .send()
         .await
         .expect("Failed to execute request.");
-
-    // Assert
     assert!(response.status().is_success());
     assert_eq!(Some(0), response.content_length());
 }
 
 #[actix_rt::test]
 async fn subscribe_returns_a_200_for_valid_form_data() {
-    // Arrange
     let app = spawn_app().await;
     let client = reqwest::Client::new();
     let body = "name=le%20guin&email=ursula_le_guin%40gmail.com";
-
-    // Act
     let response = client
         .post(&format!("{}/subscriptions", &app.address))
         .header("Content-Type", "application/x-www-form-urlencoded")
         .body(body)
         .send()
         .await
-        .expect("Failed to execute request.");
+        .expect("msg");
+    assert_eq!(200, response.status());
 
-    // Assert
-    assert_eq!(200, response.status().as_u16());
-
-    let saved = sqlx::query!("SELECT email, name FROM subscriptions",)
+    let saved = sqlx::query!("select email, name from subscriptions",)
         .fetch_one(&app.db_pool)
         .await
-        .expect("Failed to fetch saved subscription.");
-
+        .expect("failed to fetch saved subscription.");
     assert_eq!(saved.email, "ursula_le_guin@gmail.com");
     assert_eq!(saved.name, "le guin");
 }
 
 #[actix_rt::test]
 async fn subscribe_returns_a_400_when_data_is_missing() {
-    // Arrange
     let app = spawn_app().await;
     let client = reqwest::Client::new();
     let test_cases = vec![
@@ -120,7 +99,7 @@ async fn subscribe_returns_a_400_when_data_is_missing() {
         // Assert
         assert_eq!(
             400,
-            response.status().as_u16(),
+            response.status(),
             // Additional customised error message on test failure
             "The API did not fail with 400 Bad Request when the payload was {}.",
             error_message
