@@ -26,6 +26,8 @@ sqlx = { version = "0.4.1", features = [
     "migrate",
 ] }
 config = "0.10.1"
+uuid = { version = "0.8.2", features = ["v4"] }
+chrono = "0.4.19"
 
 [dev-dependencies]
 tokio = { version = "0.2.25", features = ["full"] }
